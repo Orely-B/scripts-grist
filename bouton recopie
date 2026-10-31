@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+<style>
+  body { font-family: sans-serif; padding: 12px; }
+  button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+  #msg { margin-top: 8px; color: #555; }
+</style>
+</head>
+<body>
+<button id="go" disabled>Envoyer vers Tâches</button>
+<div id="msg"></div>
+
+<script>
+const TABLE_TACHES = 'Taches';   // nom technique de votre table Tâches
+const COL_ENVOYE = 'Envoye';     // colonne Oui/Non dans les tables sources
+
+grist.ready({
+  requiredAccess: 'full',
+  columns: [{ name: 'Actions', type: 'Text', title: 'Actions à lancer' }]
+});
+
+let rec = null;
+let table = null;
+const msg = document.getElementById('msg');
+const btn = document.getElementById('go');
+
+grist.onRecord((r, mapped) => {
+  rec = { id: r.id, actions: mapped ? mapped.Actions : '' };
+  btn.disabled = false;
+});
+
+grist.onOptions(() => {});
+
+// Récupère le nom de la table à laquelle le widget est rattaché
+grist.on('message', async () => {
+  if (!table) table = await grist.selectedTable.getTableId();
+});
+
+btn.onclick = async () => {
+  if (!rec) return;
+  if (!table) table = await grist.selectedTable.getTableId();
+
+  const lignes = (rec.actions || '')
+    .split('\n').map(s => s.trim()).filter(Boolean);
+  if (!lignes.length) { msg.textContent = 'Aucune action à envoyer.'; return; }
+
+  const n = lignes.length;
+  try {
+    await grist.docApi.applyUserActions([
+      ['BulkAddRecord', TABLE_TACHES, Array(n).fill(null), {
+        Action: lignes,
+        Source: Array(n).fill(table),
+        Ligne_source: Array(n).fill(rec.id),
+        Statut: Array(n).fill('À faire')
+      }],
+      ['UpdateRecord', table, rec.id, { [COL_ENVOYE]: true }]
+    ]);
+    msg.textContent = n + ' tâche(s) créée(s).';
+  } catch (e) {
+    msg.textContent = 'Erreur : ' + e.message;
+  }
+};
+</script>
+</body>
+</html>
