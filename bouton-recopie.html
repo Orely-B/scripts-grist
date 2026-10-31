@@ -38,7 +38,7 @@ const el = (r.Element !== undefined) ? r.Element : ((mapped && mapped.Element) ?
 rec = {
 id: r.id,
 actions: texte || '',
-element: (el === null || el === undefined) ? '' : String(el)
+element: (el === null || el === undefined || el === '') ? null : el
 };
 btn.disabled = false;
 });
