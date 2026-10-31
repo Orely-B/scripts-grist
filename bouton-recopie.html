@@ -28,8 +28,11 @@ const msg = document.getElementById('msg');
 const btn = document.getElementById('go');
 
 grist.onRecord((r, mapped) => {
-  rec = { id: r.id, actions: mapped ? mapped.Actions : '' };
-  btn.disabled = false;
+const texte = (typeof r.Actions === 'string')
+? r.Actions
+: (mapped && mapped.Actions ? r[mapped.Actions] : '');
+rec = { id: r.id, actions: texte || '' };
+btn.disabled = false;
 });
 
 grist.onOptions(() => {});
