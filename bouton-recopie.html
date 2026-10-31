@@ -19,7 +19,10 @@ const COL_ENVOYE = 'Envoye';     // colonne Oui/Non dans les tables sources
 
 grist.ready({
   requiredAccess: 'full',
-  columns: [{ name: 'Actions', type: 'Text', title: 'Actions à lancer' }]
+  columns: [
+{ name: 'Actions', type: 'Text', title: 'Actions à lancer' },
+{ name: 'Element', type: 'Any', title: 'Élément concerné', optional: true }
+]
 });
 
 let rec = null;
@@ -31,7 +34,12 @@ grist.onRecord((r, mapped) => {
 const texte = (typeof r.Actions === 'string')
 ? r.Actions
 : (mapped && mapped.Actions ? r[mapped.Actions] : '');
-rec = { id: r.id, actions: texte || '' };
+const el = r.Element;
+rec = {
+id: r.id,
+actions: texte || '',
+element: (el === null || el === undefined) ? '' : String(el)
+};
 btn.disabled = false;
 });
 
@@ -57,7 +65,8 @@ btn.onclick = async () => {
         Action: lignes,
         Source: Array(n).fill(table),
         Ligne_source: Array(n).fill(rec.id),
-        Statut: Array(n).fill('À faire')
+        Statut: Array(n).fill('À faire'),
+        Element: Array(n).fill(rec.element)
       }],
       ['UpdateRecord', table, rec.id, { [COL_ENVOYE]: true }]
     ]);
