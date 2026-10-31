@@ -34,7 +34,7 @@ grist.onRecord((r, mapped) => {
 const texte = (typeof r.Actions === 'string')
 ? r.Actions
 : (mapped && mapped.Actions ? r[mapped.Actions] : '');
-const el = r.Element;
+const el = (mapped && mapped.Element) ? r[mapped.Element] : '';
 rec = {
 id: r.id,
 actions: texte || '',
