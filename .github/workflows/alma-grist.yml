@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  issues: write            # nécessaire pour créer l'issue de notification
 
 jobs:
   sync:
@@ -31,3 +32,13 @@ jobs:
           GRIST_API_KEY: ${{ secrets.GRIST_API_KEY }}
           GRIST_DOC_ID: ${{ secrets.GRIST_DOC_ID }}
         run: python alma_to_grist.py ${{ inputs.tout && '--all' || '' }}
+
+      - name: Prévenir par e-mail (via une issue GitHub)
+        if: hashFiles('nouvelles.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Alma : nouvelles nouveautés à trier ($(date +%F))" \
+            --body-file nouvelles.md \
+            --assignee Orely-B
