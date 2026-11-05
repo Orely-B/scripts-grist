@@ -216,6 +216,31 @@ def push(records, server, doc_id, table, api_key):
             sys.exit(f"Erreur Grist {r.status_code} : {r.text[:500]}")
 
 
+def existing_keys(server, doc_id, table, api_key):
+    """Retourne l'ensemble des Cle déjà présentes dans Grist (ou None si lecture impossible)."""
+    url = f"{server.rstrip('/')}/api/docs/{doc_id}/tables/{table}/records"
+    r = requests.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=120)
+    if r.status_code >= 400:
+        print(f"Lecture des lignes existantes impossible ({r.status_code}) : pas de notification.",
+              file=sys.stderr)
+        return None
+    return {rec["fields"].get("Cle") for rec in r.json().get("records", [])}
+
+
+def write_summary(new_records, path="nouvelles.md", limit=80):
+    """Écrit un résumé des nouvelles lignes, utilisé pour l'e-mail de notification."""
+    lines = [f"**{len(new_records)} nouvelle(s) nouveauté(s)** ajoutée(s) à ta table Grist "
+             "« Mises à jour ». Elles attendent d'être triées.", ""]
+    for r in new_records[:limit]:
+        f = r["fields"]
+        details = " · ".join(x for x in [f["Domaine"], f["Ticket_URM"], f["Attention"]] if x)
+        lines.append(f"- [{f['Titre']}]({f['Lien']}) ({f['Mois']})" + (f" — {details}" if details else ""))
+    if len(new_records) > limit:
+        lines.append(f"- … et {len(new_records) - limit} autres, à voir dans Grist.")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--months", type=int, default=2, help="nombre de mois récents à traiter (défaut : 2)")
@@ -271,8 +296,17 @@ def main():
         sys.exit("GRIST_API_KEY et GRIST_DOC_ID doivent être définis.")
     server = os.environ.get("GRIST_SERVER", "https://grist.numerique.gouv.fr")
     table = os.environ.get("GRIST_TABLE", "Mises_a_jour")
+    keys = existing_keys(server, doc_id, table, api_key)
     push(all_records, server, doc_id, table, api_key)
     print(f"{len(all_records)} nouveautés envoyées vers Grist.")
+
+    if keys is not None:
+        new_records = [r for r in all_records if r["require"]["Cle"] not in keys]
+        if new_records:
+            write_summary(new_records)
+            print(f"{len(new_records)} nouvelles lignes : résumé écrit dans nouvelles.md")
+        else:
+            print("Aucune nouvelle ligne depuis la dernière exécution.")
 
 
 if __name__ == "__main__":
