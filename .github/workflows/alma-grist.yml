@@ -1,0 +1,33 @@
+name: Alma vers Grist
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # chaque lundi à 6h (UTC)
+  workflow_dispatch:       # lancement manuel depuis l'onglet Actions
+    inputs:
+      tout:
+        description: "Traiter tous les mois de l'année (sinon les 2 derniers)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: pip install requests beautifulsoup4
+
+      - name: Envoyer les nouveautés vers Grist
+        env:
+          GRIST_API_KEY: ${{ secrets.GRIST_API_KEY }}
+          GRIST_DOC_ID: ${{ secrets.GRIST_DOC_ID }}
+        run: python alma_to_grist.py ${{ inputs.tout && '--all' || '' }}
