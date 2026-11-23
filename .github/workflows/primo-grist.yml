@@ -1,0 +1,44 @@
+name: Primo VE vers Grist
+
+on:
+  schedule:
+    - cron: "30 6 * * 1"   # chaque lundi à 6h30 (UTC)
+  workflow_dispatch:        # lancement manuel depuis l'onglet Actions
+    inputs:
+      essai:
+        description: "Essai : afficher les nouveautés trouvées sans rien envoyer à Grist"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write             # nécessaire pour créer l'issue de notification
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: pip install requests beautifulsoup4
+
+      - name: Envoyer les nouveautés vers Grist
+        env:
+          GRIST_API_KEY: ${{ secrets.GRIST_API_KEY }}
+          GRIST_DOC_ID: ${{ secrets.GRIST_DOC_ID }}
+        run: python primo_to_grist.py ${{ inputs.essai && '--dry-run' || '' }}
+
+      - name: Prévenir par e-mail (via une issue GitHub)
+        if: hashFiles('nouvelles_primo.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "Primo VE : nouvelles nouveautés à trier ($(date +%F))" \
+            --body-file nouvelles_primo.md \
+            --assignee Orely-B
