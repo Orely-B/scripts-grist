@@ -14,6 +14,9 @@ permissions:
   contents: read
   issues: write             # nécessaire pour créer l'issue de notification
 
+env:
+  DEPUIS: "2026-12"         # ne traiter que les nouveautés de ce mois (AAAA-MM) et des suivants
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -31,7 +34,7 @@ jobs:
         env:
           GRIST_API_KEY: ${{ secrets.GRIST_API_KEY }}
           GRIST_DOC_ID: ${{ secrets.GRIST_DOC_ID }}
-        run: python primo_to_grist.py ${{ inputs.essai && '--dry-run' || '' }}
+        run: python primo_to_grist.py --depuis "$DEPUIS" ${{ inputs.essai && '--dry-run' || '' }}
 
       - name: Prévenir par e-mail (via une issue GitHub)
         if: hashFiles('nouvelles_primo.md') != ''
