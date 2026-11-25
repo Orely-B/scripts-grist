@@ -194,6 +194,7 @@ def parse_features(soup, page_url, mois):
         records.append({
             "require": {"Cle": key},
             "fields": {
+                "Outil": "Alma",
                 "Mois": mois,
                 "Titre": f["title"],
                 "Domaine": domain,
