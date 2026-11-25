@@ -286,6 +286,8 @@ def write_summary(new_records, path="nouvelles_primo.md", limit=80):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--year", type=int, help="année à traiter (défaut : année en cours)")
+    ap.add_argument("--depuis", metavar="AAAA-MM",
+                    help="ne garder que les nouveautés de ce mois et des suivants (ex. 2026-12)")
     ap.add_argument("--dry-run", action="store_true", help="afficher sans envoyer à Grist")
     ap.add_argument("--file", help="fichier HTML local à analyser (pour tester)")
     args = ap.parse_args()
@@ -314,6 +316,16 @@ def main():
 
     if not all_records:
         sys.exit("Aucune nouveauté trouvée : la structure de la page a peut-être changé.")
+
+    if args.depuis:
+        if not re.fullmatch(r"\d{4}-\d{2}", args.depuis):
+            sys.exit("--depuis doit être au format AAAA-MM, par exemple 2026-12")
+        total = len(all_records)
+        all_records = [r for r in all_records if r["fields"]["Mois"] >= args.depuis]
+        print(f"{len(all_records)} nouveauté(s) à partir de {args.depuis} (sur {total} lues sur la page).")
+        if not all_records:
+            print("Rien à envoyer pour le moment.")
+            return
 
     if args.dry_run:
         for r in all_records:
