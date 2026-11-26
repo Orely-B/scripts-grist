@@ -27,7 +27,7 @@ import sys
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment, Tag
 
 SITE = "https://knowledge.exlibrisgroup.com"
 INDEX_URL = SITE + "/Primo/Release_Notes/002Primo_VE/{year}"
@@ -163,10 +163,31 @@ def find_meta(blocks):
     return None
 
 
+def collect_raw_starts(main, limit=400):
+    """Pour chaque titre h3 de la section Features, retourne le début du texte brut qui le suit,
+    quelle que soit la balise qui le contient (filet de sécurité pour lire le mois)."""
+    raws = []
+    in_features = False
+    for node in main.descendants:
+        if isinstance(node, Tag):
+            if node.name == "h2":
+                in_features = clean(node.get_text()).lower() == "features"
+            elif node.name == "h3" and in_features:
+                raws.append("")
+        elif isinstance(node, str) and not isinstance(node, Comment):
+            if not in_features or not raws or len(raws[-1]) >= limit:
+                continue
+            if node.find_parent(["h3", "script", "style"]) is not None:
+                continue
+            raws[-1] += node + " "
+    return raws
+
+
 def parse_features(soup, page_url):
     main = (soup.select_one("#elm-main-content") or soup.select_one(".mt-content-container")
             or soup.find("main") or soup.body or soup)
     amap = anchor_map(soup)
+    raws = collect_raw_starts(main)
     features = []
     in_features = False
     current = None
@@ -217,46 +238,66 @@ def parse_features(soup, page_url):
             if lines:
                 current["blocks"].append("\n".join(lines))
 
-    records = []
-    seen = {}
-    for f in features:
+    items = []
+    for idx, f in enumerate(features):
         if not f["title"]:
             continue
         blocks = list(f["blocks"])
         mois, tickets, origins, domain = "inconnu", [], [], OUTIL
         found = find_meta(blocks)
         if found:
-            line, idx, rest = found
+            line, i, rest = found
             mois, tickets, origins, domain = parse_meta(line, f["title"])
             if rest:
-                blocks[idx] = rest
+                blocks[i] = rest
             else:
-                blocks.pop(idx)
+                blocks.pop(i)
+        else:
+            raw = clean(raws[idx]) if idx < len(raws) else ""
+            if MONTH_RE.match(raw):
+                mois, tickets, origins, domain = parse_meta(raw[:140], f["title"])
         debug = ""
         if mois == "inconnu":
             debug = " || ".join(b[:120].replace("\n", " / ") for b in f["blocks"][:2])
         description = "\n\n".join(blocks)
         if f["docs"]:
             description += "\n\nDocumentation :\n" + "\n".join(f["docs"])
-        description = description.strip()
+        items.append({"f": f, "mois": mois, "tickets": tickets, "origins": origins,
+                      "domain": domain, "debug": debug, "description": description.strip(),
+                      "deduit": False})
 
-        key = f"Primo|{mois}|{f['title']}"
+    # Les nouveautés sont classées par mois décroissant sur la page : si les deux voisines
+    # dont le mois est connu sont du même mois, celle dont le mois est illisible en est aussi.
+    for i, it in enumerate(items):
+        if it["mois"] != "inconnu":
+            continue
+        prev = next((items[j]["mois"] for j in range(i - 1, -1, -1) if items[j]["mois"] != "inconnu"), None)
+        nxt = next((items[j]["mois"] for j in range(i + 1, len(items)) if items[j]["mois"] != "inconnu"), None)
+        if prev and prev == nxt:
+            it["mois"], it["deduit"] = prev, True
+
+    records = []
+    seen = {}
+    for it in items:
+        f = it["f"]
+        key = f"Primo|{it['mois']}|{f['title']}"
         seen[key] = seen.get(key, 0) + 1
         if seen[key] > 1:
             key += f"|{seen[key]}"
 
         link = page_url + ("#" + f["anchor"] if f["anchor"] else "")
-        labels = origins + attention_labels(f["title"], description)
+        labels = (["Mois déduit"] if it["deduit"] else []) + it["origins"] \
+            + attention_labels(f["title"], it["description"])
         records.append({
-            "_debug": debug,
+            "_debug": it["debug"],
             "require": {"Cle": key},
             "fields": {
                 "Outil": OUTIL,
-                "Mois": mois,
+                "Mois": it["mois"],
                 "Titre": f["title"],
-                "Domaine": domain,
-                "Ticket_URM": ", ".join(tickets),
-                "Description": description,
+                "Domaine": it["domain"],
+                "Ticket_URM": ", ".join(it["tickets"]),
+                "Description": it["description"],
                 "Lien": link,
                 "Attention": " ; ".join(labels),
             },
