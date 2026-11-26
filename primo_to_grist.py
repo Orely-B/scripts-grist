@@ -37,7 +37,7 @@ OUTIL = "Primo VE"
 
 MONTHS = ["January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
-MONTH_RE = re.compile(r"^\s*(%s)\s+(\d{4})" % "|".join(MONTHS))
+MONTH_RE = re.compile(r"^[\W_]*(%s)\s*(\d{4})" % "|".join(MONTHS))
 
 # Mots repérés dans la description pour remplir la colonne « Attention ».
 ATTENTION_RULES = [
@@ -151,6 +151,18 @@ def attention_labels(title, description):
     return [label for pattern, label in ATTENTION_RULES if re.search(pattern, haystack)]
 
 
+def find_meta(blocks):
+    """Cherche la ligne « Mois AAAA … » dans les premiers blocs de texte d'une nouveauté.
+    Retourne (ligne, index_du_bloc, reste_du_bloc) ou None."""
+    for i, block in enumerate(blocks[:3]):
+        lines = block.split("\n")
+        for j, line in enumerate(lines[:2]):
+            if MONTH_RE.match(line):
+                rest = "\n".join(lines[:j] + lines[j + 1:]).strip()
+                return line, i, rest
+    return None
+
+
 def parse_features(soup, page_url):
     main = (soup.select_one("#elm-main-content") or soup.select_one(".mt-content-container")
             or soup.find("main") or soup.body or soup)
@@ -211,15 +223,18 @@ def parse_features(soup, page_url):
         if not f["title"]:
             continue
         blocks = list(f["blocks"])
-        mois, tickets, origins, domain = "inconnu", [], [], (OUTIL)
-        if blocks:
-            first_line, _, rest = blocks[0].partition("\n")
-            if MONTH_RE.match(first_line):
-                mois, tickets, origins, domain = parse_meta(first_line, f["title"])
-                if rest.strip():
-                    blocks[0] = rest.strip()
-                else:
-                    blocks.pop(0)
+        mois, tickets, origins, domain = "inconnu", [], [], OUTIL
+        found = find_meta(blocks)
+        if found:
+            line, idx, rest = found
+            mois, tickets, origins, domain = parse_meta(line, f["title"])
+            if rest:
+                blocks[idx] = rest
+            else:
+                blocks.pop(idx)
+        debug = ""
+        if mois == "inconnu":
+            debug = " || ".join(b[:120].replace("\n", " / ") for b in f["blocks"][:2])
         description = "\n\n".join(blocks)
         if f["docs"]:
             description += "\n\nDocumentation :\n" + "\n".join(f["docs"])
@@ -233,6 +248,7 @@ def parse_features(soup, page_url):
         link = page_url + ("#" + f["anchor"] if f["anchor"] else "")
         labels = origins + attention_labels(f["title"], description)
         records.append({
+            "_debug": debug,
             "require": {"Cle": key},
             "fields": {
                 "Outil": OUTIL,
@@ -252,7 +268,7 @@ def push(records, server, doc_id, table, api_key):
     url = f"{server.rstrip('/')}/api/docs/{doc_id}/tables/{table}/records"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     for i in range(0, len(records), 50):
-        chunk = records[i:i + 50]
+        chunk = [{"require": r["require"], "fields": r["fields"]} for r in records[i:i + 50]]
         r = requests.put(url, headers=headers, json={"records": chunk}, timeout=120)
         if r.status_code >= 400:
             sys.exit(f"Erreur Grist {r.status_code} : {r.text[:500]}")
@@ -317,11 +333,19 @@ def main():
     if not all_records:
         sys.exit("Aucune nouveauté trouvée : la structure de la page a peut-être changé.")
 
+    unknown = [r for r in all_records if r["fields"]["Mois"] == "inconnu"]
+    if unknown:
+        print(f"ATTENTION : {len(unknown)} nouveauté(s) dont le mois n'a pas pu être lu"
+              + (" (ignorées, car --depuis est utilisé) :" if args.depuis else " :"))
+        for r in unknown:
+            print(f"  ? {r['fields']['Titre']} | début du texte : {r['_debug']}")
+
     if args.depuis:
         if not re.fullmatch(r"\d{4}-\d{2}", args.depuis):
             sys.exit("--depuis doit être au format AAAA-MM, par exemple 2026-12")
         total = len(all_records)
-        all_records = [r for r in all_records if r["fields"]["Mois"] >= args.depuis]
+        all_records = [r for r in all_records
+                       if r["fields"]["Mois"] != "inconnu" and r["fields"]["Mois"] >= args.depuis]
         print(f"{len(all_records)} nouveauté(s) à partir de {args.depuis} (sur {total} lues sur la page).")
         if not all_records:
             print("Rien à envoyer pour le moment.")
